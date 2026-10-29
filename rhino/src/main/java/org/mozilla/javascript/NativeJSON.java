@@ -120,37 +120,52 @@ public final class NativeJSON extends ScriptableObject {
                     if (i > Integer.MAX_VALUE) {
                         String id = Long.toString(i);
                         Object newElement = walk(cx, scope, reviver, val, id);
-                        if (newElement == Undefined.instance) {
-                            val.delete(id);
-                        } else {
-                            val.put(id, val, newElement);
-                        }
+                        storeRevivedValue(cx, val, id, newElement);
                     } else {
                         int idx = (int) i;
                         Object newElement = walk(cx, scope, reviver, val, Integer.valueOf(idx));
-                        if (newElement == Undefined.instance) {
-                            val.delete(idx);
-                        } else {
-                            val.put(idx, val, newElement);
-                        }
+                        storeRevivedValue(cx, val, idx, newElement);
                     }
                 }
             } else {
                 Object[] keys = val.getIds();
                 for (Object p : keys) {
                     Object newElement = walk(cx, scope, reviver, val, p);
-                    if (newElement == Undefined.instance) {
-                        if (p instanceof Number) val.delete(((Number) p).intValue());
-                        else val.delete((String) p);
-                    } else {
-                        if (p instanceof Number) val.put(((Number) p).intValue(), val, newElement);
-                        else val.put((String) p, val, newElement);
-                    }
+                    storeRevivedValue(cx, val, p, newElement);
                 }
             }
         }
 
         return reviver.call(cx, scope, holder, new Object[] {name, property});
+    }
+
+    /**
+     * Stores the result of the reviver like InternalizeJSONProperty: undefined deletes the
+     * property, any other value is set with CreateDataProperty. Neither throws for a
+     * non-configurable property, they leave it unchanged.
+     */
+    private static void storeRevivedValue(Context cx, Scriptable holder, Object id, Object value) {
+        // a proxy handles this in its own deleteProperty and defineProperty traps
+        if (holder instanceof ScriptableObject && !(holder instanceof NativeProxy)) {
+            ScriptableObject obj = (ScriptableObject) holder;
+            DescriptorInfo current = obj.getOwnPropertyDescriptor(cx, id);
+            if (current != null ? current.isConfigurable(false) : !obj.isExtensible()) {
+                return;
+            }
+        }
+
+        if (value == Undefined.instance) {
+            if (id instanceof Number) holder.delete(((Number) id).intValue());
+            else holder.delete((String) id);
+        } else if (holder instanceof ScriptableObject
+                && !(holder instanceof NativeArray && ((NativeArray) holder).getDenseOnly())) {
+            DescriptorInfo desc = new DescriptorInfo(true, true, true, value);
+            ((ScriptableObject) holder).defineOwnProperty(cx, id, desc);
+        } else {
+            // the elements of a dense array are plain data properties, put() keeps it dense
+            if (id instanceof Number) holder.put(((Number) id).intValue(), holder, value);
+            else holder.put((String) id, holder, value);
+        }
     }
 
     private static String repeat(char c, int count) {

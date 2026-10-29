@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.TopLevel;
+import org.mozilla.javascript.testutils.Utils;
 
 /**
  * @author Ronald Brill
@@ -27,5 +28,36 @@ public class NativeJsonTest {
             assertEquals("{\"property1\":\"hello\",\"array1\":[{\"subobject\":1}]}", result);
             assertEquals("java.lang.String", result.getClass().getName());
         }
+    }
+
+    @Test
+    public void reviverDoesNotReplaceNonConfigurableProperty() {
+        Utils.assertWithAllModes_ES6(
+                "2,2",
+                Utils.lines(
+                        "function reviver(k, v) {",
+                        "  var key = Array.isArray(this) ? 1 : 'b';",
+                        "  if (v === 1) Object.defineProperty(this, key, {configurable: false});",
+                        "  return v === 2 ? 22 : v;",
+                        "}",
+                        "var obj = JSON.parse(JSON.stringify({a: 1, b: 2}), reviver);",
+                        "var arr = JSON.parse('[1, 2]', reviver);",
+                        "obj.b + ',' + arr[1]"));
+    }
+
+    @Test
+    public void reviverDoesNotThrowOnNonConfigurablePropertyInStrictMode() {
+        Utils.assertWithAllModes_ES6(
+                "2,2",
+                Utils.lines(
+                        "'use strict';",
+                        "function reviver(k, v) {",
+                        "  var key = Array.isArray(this) ? 1 : 'b';",
+                        "  if (v === 1) Object.defineProperty(this, key, {configurable: false});",
+                        "  return v === 2 ? undefined : v;",
+                        "}",
+                        "var obj = JSON.parse(JSON.stringify({a: 1, b: 2}), reviver);",
+                        "var arr = JSON.parse('[1, 2]', reviver);",
+                        "obj.b + ',' + arr[1]"));
     }
 }
